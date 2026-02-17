@@ -21,6 +21,7 @@ import os
 import sys
 import json
 import pathlib
+import tempfile
 
 from time import sleep
 from random import randint
@@ -58,13 +59,11 @@ def make_directories(paths: list[str]) -> None:
 
 
 def get_default_temp_profile() -> str:
-    # Thanks to https://github.com/vinodbavage31 for suggestion!
-    home = pathlib.Path.home()
-    if sys.platform.startswith('win'):
-        return "--user-data-dir=C:\\temp\\auto-job-apply-profile"
-    elif sys.platform.startswith('linux'):
-        return str(home / ".auto-job-apply-profile")
-    return str(home / "Library" / "Application Support" / "Google" / "Chrome" / "auto-job-apply-profile")
+    '''
+    Returns a unique, writable user-data-dir path for Chrome per run.
+    Reusing a fixed profile path can leave stale lock files and break startup.
+    '''
+    return tempfile.mkdtemp(prefix="auto-job-apply-profile-")
 
 
 def find_default_profile_directory() -> str | None:

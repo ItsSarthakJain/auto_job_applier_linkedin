@@ -82,19 +82,21 @@ def multi_sel_noWait(driver: WebDriver, texts: list, actions: ActionChains = Non
             else:   print_lg("Click Failed! Didn't find '"+text+"'")
             # print_lg(e)
 
-def boolean_button_click(driver: WebDriver, actions: ActionChains, text: str) -> None:
+def boolean_button_click(driver: WebDriver, actions: ActionChains, text: str) -> bool:
     '''
     Tries to click on the boolean button with the given `text` text.
     '''
     try:
-        list_container = driver.find_element(By.XPATH, './/h3[normalize-space()="'+text+'"]/ancestor::fieldset')
+        list_container = driver.find_element(By.XPATH, './/h3[contains(translate(normalize-space(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "'+text.lower()+'")]/ancestor::fieldset')
         button = list_container.find_element(By.XPATH, './/input[@role="switch"]')
         scroll_to_view(driver, button)
         actions.move_to_element(button).click().perform()
         buffer(click_gap)
+        return True
     except Exception as e:
         print_lg("Click Failed! Didn't find '"+text+"'")
         # print_lg(e)
+        return False
 
 # Find functions
 def find_by_class(driver: WebDriver, class_name: str, time: float=5.0) -> WebElement | Exception:

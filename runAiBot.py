@@ -33,17 +33,18 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support.select import Select
 from selenium.webdriver.remote.webelement import WebElement
-from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException, NoSuchWindowException, ElementNotInteractableException, WebDriverException
+from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException, NoSuchWindowException, ElementNotInteractableException, WebDriverException, StaleElementReferenceException
 
 from config.personals import *
 from config.questions import *
 from config.search import *
-from config.secrets import use_AI, username, password, ai_provider
+from config.secrets import use_AI, ai_provider, username
 from config.settings import *
 
 from modules.open_chrome import *
 from modules.helpers import *
 from modules.clickers_and_finders import *
+from modules.dialogs import ui
 from modules.validator import validate_config
 
 if use_AI:
@@ -98,8 +99,155 @@ aiClient = None
 ##> ------ Dheeraj Deshwal : dheeraj9811 Email:dheeraj20194@iiitd.ac.in/dheerajdeshwal9811@gmail.com - Feature ------
 about_company_for_ai = None # TODO extract about company for AI
 ##<
+linkedin_username = ""
+linkedin_password = ""
 
 #>
+
+def salary_unit_type(label: str) -> Literal["monthly", "lpa", "annual"]:
+    """
+    Detect expected salary unit from question label.
+    """
+    label = label.lower()
+    if any(word in label for word in ["month", "monthly", "/month", "per month", "p.m"]):
+        return "monthly"
+    if any(word in label for word in ["lpa", "lakh", "lakhs", "lac", "lacs"]):
+        return "lpa"
+    return "annual"
+
+
+def salary_answer_for_label(label: str) -> str:
+    """
+    Resolve salary/CTC answer based on question context and detected unit.
+    """
+    unit = salary_unit_type(label)
+    is_current = any(word in label for word in ["current", "present"])
+    if is_current:
+        if unit == "monthly":
+            return current_ctc_monthly
+        if unit == "lpa":
+            return current_ctc_lakhs
+        return current_ctc
+    if unit == "monthly":
+        return desired_salary_monthly
+    if unit == "lpa":
+        return desired_salary_lakhs
+    return desired_salary
+
+
+def is_linkedin_profile_question(label: str) -> bool:
+    return "linkedin" in label and any(word in label for word in ["profile", "url", "link"])
+
+
+def is_profile_headline_question(label: str) -> bool:
+    return "headline" in label and any(word in label for word in ["linkedin", "profile", "professional"])
+
+
+def is_profile_summary_question(label: str) -> bool:
+    return "summary" in label and any(word in label for word in ["linkedin", "profile", "professional"])
+
+
+def ask_user_for_unknown_answer(question: str, field_type: str = "text") -> str:
+    """
+    Ask user for one-off answer for unknown/confusing fields.
+    """
+    if not pause_at_failed_question:
+        return ""
+    prompt_msg = (
+        f"Couldn't confidently answer this {field_type} field.\n\n"
+        f"Question: {question}\n\n"
+        "Type the answer now, or leave blank to handle manually in LinkedIn and click Continue."
+    )
+    try:
+        response = ui.prompt(prompt_msg, "Input Needed", "")
+        return response.strip() if response else ""
+    except Exception:
+        return ""
+
+
+def ask_user_for_option(question: str, options: list[str], field_type: str = "select") -> str:
+    """
+    Ask user to pick one option for unknown/confusing select/radio fields.
+    """
+    if not pause_at_failed_question:
+        return ""
+    options_text = "\n".join([f"- {option}" for option in options[:20]])
+    prompt_msg = (
+        f"Couldn't confidently answer this {field_type} field.\n\n"
+        f"Question: {question}\n\n"
+        f"Available options:\n{options_text}\n\n"
+        "Type an option exactly (or close text), or leave blank to handle manually."
+    )
+    try:
+        response = ui.prompt(prompt_msg, "Option Needed", "")
+        return response.strip() if response else ""
+    except Exception:
+        return ""
+
+
+def collect_linkedin_credentials() -> tuple[str, str]:
+    """
+    Uses LinkedIn username from config and asks only for password via UI.
+    """
+    print_lg("Collecting LinkedIn credentials...")
+    while True:
+        pwd = ui.prompt("Enter your LinkedIn password:", "LinkedIn Login", "", password=True)
+        user = username.strip() if username else ""
+        pwd = pwd.strip() if pwd else ""
+        if user and pwd:
+            print_lg("LinkedIn credentials received. Proceeding to login...")
+            return user, pwd
+        if not user:
+            ui.alert("LinkedIn username is missing in config/secrets.py", "Missing Username", "Retry")
+        else:
+            ui.alert("LinkedIn password is required to continue.", "Missing Password", "Retry")
+
+
+def get_ai_answer_by_type(question: str, question_type: Literal["text", "textarea"], job_description: str | None = None) -> str:
+    if not (use_AI and aiClient):
+        return ""
+    try:
+        if ai_provider.lower() == "openai":
+            return ai_answer_question(aiClient, question, question_type=question_type, job_description=job_description, user_information_all=user_information_all)
+        if ai_provider.lower() == "deepseek":
+            return deepseek_answer_question(aiClient, question, options=None, question_type=question_type, job_description=job_description, about_company=None, user_information_all=user_information_all)
+        if ai_provider.lower() == "gemini":
+            return gemini_answer_question(aiClient, question, options=None, question_type=question_type, job_description=job_description, about_company=None, user_information_all=user_information_all)
+    except Exception as e:
+        print_lg(f"Failed to get AI answer for {question_type} question!", e)
+    return ""
+
+
+def resolve_answer_by_confidence(
+    label_org: str,
+    initial_answer: str,
+    confidence: float,
+    question_type: Literal["text", "textarea"],
+    job_description: str | None = None,
+) -> str:
+    """
+    Confidence router:
+    - High confidence: use deterministic answer.
+    - Medium confidence: prefer AI if available, else ask user.
+    - Low confidence: ask user first, then AI.
+    """
+    if initial_answer and confidence >= 0.8:
+        return initial_answer
+
+    if 0.45 <= confidence < 0.8:
+        ai_answer = get_ai_answer_by_type(label_org, question_type, job_description)
+        if ai_answer and isinstance(ai_answer, str) and ai_answer.strip():
+            return ai_answer.strip()
+        manual = ask_user_for_unknown_answer(label_org, question_type)
+        return manual if manual else initial_answer
+
+    manual = ask_user_for_unknown_answer(label_org, question_type)
+    if manual:
+        return manual
+    ai_answer = get_ai_answer_by_type(label_org, question_type, job_description)
+    if ai_answer and isinstance(ai_answer, str) and ai_answer.strip():
+        return ai_answer.strip()
+    return initial_answer
 
 
 #< Login Functions
@@ -119,29 +267,29 @@ def is_logged_in_LN() -> bool:
 def login_LN() -> None:
     '''
     Function to login for LinkedIn
-    * Tries to login using given `username` and `password` from `secrets.py`
+    * Always asks user for LinkedIn credentials at runtime.
     * If failed, tries to login using saved LinkedIn profile button if available
     * If both failed, asks user to login manually
     '''
+    global linkedin_username, linkedin_password
+
+    def fill_login_field(value: str, ids: list[str], label: str) -> bool:
+        for field_id in ids:
+            try:
+                text_input_by_ID(driver, field_id, value, 1)
+                return True
+            except Exception:
+                continue
+        print_lg(f"Couldn't find {label} field.")
+        return False
+
     # Find the username and password fields and fill them with user credentials
     driver.get("https://www.linkedin.com/login")
-    if username == "username@example.com" and password == "example_password":
-        pyautogui.alert("User did not configure username and password in secrets.py, hence can't login automatically! Please login manually!", "Login Manually","Okay")
-        print_lg("User did not configure username and password in secrets.py, hence can't login automatically! Please login manually!")
-        manual_login_retry(is_logged_in_LN, 2)
-        return
+    linkedin_username, linkedin_password = collect_linkedin_credentials()
     try:
         wait.until(EC.presence_of_element_located((By.LINK_TEXT, "Forgot password?")))
-        try:
-            text_input_by_ID(driver, "username", username, 1)
-        except Exception as e:
-            print_lg("Couldn't find username field.")
-            # print_lg(e)
-        try:
-            text_input_by_ID(driver, "password", password, 1)
-        except Exception as e:
-            print_lg("Couldn't find password field.")
-            # print_lg(e)
+        fill_login_field(linkedin_username, ["username", "session_key"], "username")
+        fill_login_field(linkedin_password, ["password", "session_password"], "password")
         # Find the login submit button and click it
         driver.find_element(By.XPATH, '//button[@type="submit" and contains(text(), "Sign in")]').click()
     except Exception as e1:
@@ -207,16 +355,92 @@ def apply_filters() -> None:
     '''
     Function to apply job search filters
     '''
+    def click_with_fallback(ele: WebElement) -> bool:
+        try:
+            scroll_to_view(driver, ele)
+        except Exception:
+            pass
+        try:
+            ele.click()
+            return True
+        except Exception:
+            try:
+                driver.execute_script("arguments[0].click();", ele)
+                return True
+            except Exception:
+                return False
+
+    def open_all_filters_panel() -> bool:
+        xpaths = [
+            '//button[normalize-space()="All filters"]',
+            '//button[contains(@aria-label, "All filters")]',
+            '//button[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "all filters")]',
+        ]
+        for xp in xpaths:
+            try:
+                ele = WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.XPATH, xp)))
+                if click_with_fallback(ele):
+                    # wait for modal/filter panel to appear
+                    WebDriverWait(driver, 5).until(
+                        EC.presence_of_element_located(
+                            (
+                                By.XPATH,
+                                '//div[contains(@class, "artdeco-modal") or contains(@class, "jobs-search-box__all-filters")]',
+                            )
+                        )
+                    )
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def click_date_posted_option(option_text: str) -> bool:
+        if not option_text:
+            return True
+        xpaths = [
+            f'//fieldset[.//h3[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "date posted")]]//label[.//span[normalize-space()="{option_text}"]]',
+            f'//fieldset[.//legend[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "date posted")]]//label[.//span[normalize-space()="{option_text}"]]',
+            f'//span[normalize-space()="{option_text}"]/ancestor::label[1]',
+            f'//button[normalize-space()="{option_text}"]',
+            f'//span[normalize-space()="{option_text}"]',
+        ]
+        for xp in xpaths:
+            try:
+                ele = driver.find_element(By.XPATH, xp)
+                if click_with_fallback(ele):
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def click_show_results() -> bool:
+        xpaths = [
+            '//button[contains(translate(@aria-label, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "apply current filters to show")]',
+            '//button[contains(translate(@aria-label, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "show") and contains(translate(@aria-label, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "result")]',
+            '//button[.//span[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "show") and contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "result")]]',
+            '//button[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "show results")]',
+        ]
+        for xp in xpaths:
+            try:
+                ele = driver.find_element(By.XPATH, xp)
+                if click_with_fallback(ele):
+                    return True
+            except Exception:
+                continue
+        return False
+
     set_search_location()
 
     try:
         recommended_wait = 1 if click_gap < 1 else 0
 
-        wait.until(EC.presence_of_element_located((By.XPATH, '//button[normalize-space()="All filters"]'))).click()
+        if not open_all_filters_panel():
+            raise Exception("Couldn't open 'All filters' panel.")
         buffer(recommended_wait)
 
         wait_span_click(driver, sort_by)
-        wait_span_click(driver, date_posted)
+        if date_posted and not click_date_posted_option(date_posted):
+            print_lg(f"Couldn't apply date filter '{date_posted}', continuing...")
         buffer(recommended_wait)
 
         multi_sel_noWait(driver, experience_level) 
@@ -227,7 +451,20 @@ def apply_filters() -> None:
         multi_sel_noWait(driver, on_site)
         if job_type or on_site: buffer(recommended_wait)
 
-        if easy_apply_only: boolean_button_click(driver, actions, "Easy Apply")
+        if easy_apply_only:
+            if not boolean_button_click(driver, actions, "Easy Apply"):
+                if not boolean_button_click(driver, actions, "Easy Apply only"):
+                    try:
+                        quick_easy_apply = driver.find_element(
+                            By.XPATH,
+                            '//button[contains(translate(@aria-label, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "easy apply") or contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "easy apply")]'
+                        )
+                        if click_with_fallback(quick_easy_apply):
+                            print_lg("Applied Easy Apply filter using quick-filter fallback.")
+                        else:
+                            print_lg("Couldn't apply Easy Apply filter, continuing...")
+                    except Exception:
+                        print_lg("Couldn't apply Easy Apply filter, continuing...")
         
         multi_sel_noWait(driver, location)
         multi_sel_noWait(driver, industry)
@@ -248,17 +485,17 @@ def apply_filters() -> None:
         multi_sel_noWait(driver, commitments)
         if benefits or commitments: buffer(recommended_wait)
 
-        show_results_button: WebElement = driver.find_element(By.XPATH, '//button[contains(translate(@aria-label, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "apply current filters to show")]')
-        show_results_button.click()
+        if not click_show_results():
+            raise Exception("Couldn't click 'Show results' button.")
 
         global pause_after_filters
-        if pause_after_filters and "Turn off Pause after search" == pyautogui.confirm("These are your configured search results and filter. It is safe to change them while this dialog is open, any changes later could result in errors and skipping this search run.", "Please check your results", ["Turn off Pause after search", "Look's good, Continue"]):
+        if pause_after_filters and "Turn off Pause after search" == ui.confirm("These are your configured search results and filter. It is safe to change them while this dialog is open, any changes later could result in errors and skipping this search run.", "Please check your results", ["Turn off Pause after search", "Look's good, Continue"]):
             pause_after_filters = False
 
     except Exception as e:
         print_lg("Setting the preferences failed!")
-        pyautogui.confirm(f"Faced error while applying filters. Please make sure correct filters are selected, click on show results and click on any button of this dialog, I know it sucks. Can't turn off Pause after search when error occurs! ERROR: {e}", ["Doesn't look good, but Continue XD", "Look's good, Continue"])
-        # print_lg(e)
+        print_lg(f"Filter apply error details: {e}")
+        print_lg("Continuing without blocking user interaction...")
 
 
 
@@ -517,11 +754,25 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                                 foundOption = True
                                 break
                     if not foundOption:
-                        #TODO: Use AI to answer the question need to be implemented logic to extract the options for the question
-                        print_lg(f'Failed to find an option with text "{answer}" for question labelled "{label_org}", answering randomly!')
-                        select.select_by_index(randint(1, len(select.options)-1))
-                        answer = select.first_selected_option.text
-                        randomly_answered_questions.add((f'{label_org} [ {options} ]',"select"))
+                        manual_answer = ask_user_for_option(label_org, optionsText, "select")
+                        if manual_answer:
+                            try:
+                                select.select_by_visible_text(manual_answer)
+                                answer = manual_answer
+                                foundOption = True
+                            except NoSuchElementException:
+                                for option in optionsText:
+                                    if manual_answer.lower() in option.lower() or option.lower() in manual_answer.lower():
+                                        select.select_by_visible_text(option)
+                                        answer = option
+                                        foundOption = True
+                                        break
+                        if not foundOption:
+                            # TODO: Use AI to answer the question and extract options for the question.
+                            print_lg(f'Failed to find an option with text "{answer}" for question labelled "{label_org}", answering randomly!')
+                            select.select_by_index(randint(1, len(select.options)-1))
+                            answer = select.first_selected_option.text
+                            randomly_answered_questions.add((f'{label_org} [ {options} ]',"select"))
             questions_list.add((f'{label_org} [ {options} ]', answer, "select", prev_answer))
             continue
         
@@ -568,6 +819,15 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                                 answer = f'Decline ({option_label})' if len(possible_answer_phrases) > 1 else option_label
                                 break
                         if foundOption: break
+                    if not foundOption:
+                        manual_answer = ask_user_for_option(label_org, options_labels, "radio")
+                        if manual_answer:
+                            for i, option_label in enumerate(options_labels):
+                                if manual_answer.lower() in option_label.lower() or option_label.lower() in manual_answer.lower():
+                                    foundOption = options[i]
+                                    ele = foundOption
+                                    answer = option_label
+                                    break
                     # if answer == 'Decline':
                     #     answer = options_labels[0]
                     #     for phrase in ["Prefer not", "not want", "not wish"]:
@@ -591,80 +851,87 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             except: pass
             label_org = label.text if label else "Unknown"
             answer = "" # years_of_experience
+            confidence = 0.1
             label = label_org.lower()
 
             prev_answer = text.get_attribute("value")
             if not prev_answer or overwrite_previous_answers:
-                if 'experience' in label or 'years' in label: answer = years_of_experience
-                elif 'phone' in label or 'mobile' in label: answer = phone_number
-                elif 'street' in label: answer = street
+                if 'experience' in label or 'years' in label:
+                    answer = years_of_experience
+                    confidence = 0.95
+                elif 'phone' in label or 'mobile' in label:
+                    answer = phone_number
+                    confidence = 0.95
+                elif 'street' in label:
+                    answer = street
+                    confidence = 0.9
                 elif 'city' in label or 'location' in label or 'address' in label:
                     answer = current_city if current_city else work_location
                     do_actions = True
-                elif 'signature' in label: answer = full_name # 'signature' in label or 'legal name' in label or 'your name' in label or 'full name' in label: answer = full_name     # What if question is 'name of the city or university you attend, name of referral etc?'
+                    confidence = 0.85
+                elif 'signature' in label:
+                    answer = full_name
+                    confidence = 0.9
                 elif 'name' in label:
-                    if 'full' in label: answer = full_name
-                    elif 'first' in label and 'last' not in label: answer = first_name
-                    elif 'middle' in label and 'last' not in label: answer = middle_name
-                    elif 'last' in label and 'first' not in label: answer = last_name
-                    elif 'employer' in label: answer = recent_employer
-                    else: answer = full_name
+                    if 'full' in label:
+                        answer = full_name
+                        confidence = 0.75
+                    elif 'first' in label and 'last' not in label:
+                        answer = first_name
+                        confidence = 0.9
+                    elif 'middle' in label and 'last' not in label:
+                        answer = middle_name
+                        confidence = 0.9
+                    elif 'last' in label and 'first' not in label:
+                        answer = last_name
+                        confidence = 0.9
+                    elif 'employer' in label:
+                        answer = recent_employer
+                        confidence = 0.9
+                    else:
+                        answer = full_name
+                        confidence = 0.45
                 elif 'notice' in label:
                     if 'month' in label:
                         answer = notice_period_months
                     elif 'week' in label:
                         answer = notice_period_weeks
                     else: answer = notice_period
+                    confidence = 0.9
                 elif 'salary' in label or 'compensation' in label or 'ctc' in label or 'pay' in label: 
-                    if 'current' in label or 'present' in label:
-                        if 'month' in label:
-                            answer = current_ctc_monthly
-                        elif 'lakh' in label:
-                            answer = current_ctc_lakhs
-                        else:
-                            answer = current_ctc
-                    else:
-                        if 'month' in label:
-                            answer = desired_salary_monthly
-                        elif 'lakh' in label:
-                            answer = desired_salary_lakhs
-                        else:
-                            answer = desired_salary
-                elif 'linkedin' in label: answer = linkedIn
-                elif 'website' in label or 'blog' in label or 'portfolio' in label or 'link' in label: answer = website
-                elif 'scale of 1-10' in label: answer = confidence_level
-                elif 'headline' in label: answer = linkedin_headline
-                elif ('hear' in label or 'come across' in label) and 'this' in label and ('job' in label or 'position' in label): answer = "https://github.com/GodsScion/Auto_job_applier_linkedIn"
-                elif 'state' in label or 'province' in label: answer = state
-                elif 'zip' in label or 'postal' in label or 'code' in label: answer = zipcode
-                elif 'country' in label: answer = country
-                else: answer = answer_common_questions(label,answer)
-                ##> ------ Yang Li : MARKYangL - Feature ------
-                if answer == "":
-                    if use_AI and aiClient:
-                        try:
-                            if ai_provider.lower() == "openai":
-                                answer = ai_answer_question(aiClient, label_org, question_type="text", job_description=job_description, user_information_all=user_information_all)
-                            elif ai_provider.lower() == "deepseek":
-                                answer = deepseek_answer_question(aiClient, label_org, options=None, question_type="text", job_description=job_description, about_company=None, user_information_all=user_information_all)
-                            elif ai_provider.lower() == "gemini":
-                                answer = gemini_answer_question(aiClient, label_org, options=None, question_type="text", job_description=job_description, about_company=None, user_information_all=user_information_all)
-                            else:
-                                randomly_answered_questions.add((label_org, "text"))
-                                answer = years_of_experience
-                            if answer and isinstance(answer, str) and len(answer) > 0:
-                                print_lg(f'AI Answered received for question "{label_org}" \nhere is answer: "{answer}"')
-                            else:
-                                randomly_answered_questions.add((label_org, "text"))
-                                answer = years_of_experience
-                        except Exception as e:
-                            print_lg("Failed to get AI answer!", e)
-                            randomly_answered_questions.add((label_org, "text"))
-                            answer = years_of_experience
-                    else:
-                        randomly_answered_questions.add((label_org, "text"))
-                        answer = years_of_experience
-                ##<
+                    answer = salary_answer_for_label(label)
+                    confidence = 0.98
+                elif is_linkedin_profile_question(label):
+                    answer = linkedIn
+                    confidence = 0.95
+                elif 'website' in label or 'blog' in label or 'portfolio' in label or 'link' in label:
+                    answer = website
+                    confidence = 0.55
+                elif 'scale of 1-10' in label:
+                    answer = confidence_level
+                    confidence = 0.95
+                elif is_profile_headline_question(label):
+                    answer = linkedin_headline
+                    confidence = 0.9
+                elif ('hear' in label or 'come across' in label) and 'this' in label and ('job' in label or 'position' in label):
+                    answer = "https://github.com/GodsScion/Auto_job_applier_linkedIn"
+                    confidence = 0.85
+                elif 'state' in label or 'province' in label:
+                    answer = state
+                    confidence = 0.9
+                elif 'zip' in label or 'postal' in label or 'code' in label:
+                    answer = zipcode
+                    confidence = 0.9
+                elif 'country' in label:
+                    answer = country
+                    confidence = 0.9
+                else:
+                    answer = answer_common_questions(label,answer)
+                    confidence = 0.3 if not answer else 0.5
+
+                answer = resolve_answer_by_confidence(label_org, answer, confidence, "text", job_description)
+                if not answer:
+                    randomly_answered_questions.add((label_org, "text"))
                 text.clear()
                 text.send_keys(answer)
                 if do_actions:
@@ -681,34 +948,19 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             label_org = label.text if label else "Unknown"
             label = label_org.lower()
             answer = ""
+            confidence = 0.1
             prev_answer = text_area.get_attribute("value")
             if not prev_answer or overwrite_previous_answers:
-                if 'summary' in label: answer = linkedin_summary
-                elif 'cover' in label: answer = cover_letter
-                if answer == "":
-                ##> ------ Yang Li : MARKYangL - Feature ------
-                    if use_AI and aiClient:
-                        try:
-                            if ai_provider.lower() == "openai":
-                                answer = ai_answer_question(aiClient, label_org, question_type="textarea", job_description=job_description, user_information_all=user_information_all)
-                            elif ai_provider.lower() == "deepseek":
-                                answer = deepseek_answer_question(aiClient, label_org, options=None, question_type="textarea", job_description=job_description, about_company=None, user_information_all=user_information_all)
-                            elif ai_provider.lower() == "gemini":
-                                answer = gemini_answer_question(aiClient, label_org, options=None, question_type="textarea", job_description=job_description, about_company=None, user_information_all=user_information_all)
-                            else:
-                                randomly_answered_questions.add((label_org, "textarea"))
-                                answer = ""
-                            if answer and isinstance(answer, str) and len(answer) > 0:
-                                print_lg(f'AI Answered received for question "{label_org}" \nhere is answer: "{answer}"')
-                            else:
-                                randomly_answered_questions.add((label_org, "textarea"))
-                                answer = ""
-                        except Exception as e:
-                            print_lg("Failed to get AI answer!", e)
-                            randomly_answered_questions.add((label_org, "textarea"))
-                            answer = ""
-                    else:
-                        randomly_answered_questions.add((label_org, "textarea"))
+                if is_profile_summary_question(label):
+                    answer = linkedin_summary
+                    confidence = 0.9
+                elif 'cover' in label:
+                    answer = cover_letter
+                    confidence = 0.85
+
+                answer = resolve_answer_by_confidence(label_org, answer, confidence, "textarea", job_description)
+                if not answer:
+                    randomly_answered_questions.add((label_org, "textarea"))
             text_area.clear()
             text_area.send_keys(answer)
             if do_actions:
@@ -811,7 +1063,7 @@ def failed_job(job_id: str, job_link: str, resume: str, date_listed, error: str,
             file.close()
     except Exception as e:
         print_lg("Failed to update failed jobs list!", e)
-        pyautogui.alert("Failed to update the excel of failed jobs!\nProbably because of 1 of the following reasons:\n1. The file is currently open or in use by another program\n2. Permission denied to write to the file\n3. Failed to find the file", "Failed Logging")
+        ui.alert("Failed to update the excel of failed jobs!\nProbably because of 1 of the following reasons:\n1. The file is currently open or in use by another program\n2. Permission denied to write to the file\n3. Failed to find the file", "Failed Logging")
 
 
 def screenshot(driver: WebDriver, job_id: str, failedAt: str) -> str:
@@ -849,7 +1101,7 @@ def submitted_jobs(job_id: str, title: str, company: str, work_location: str, wo
         csv_file.close()
     except Exception as e:
         print_lg("Failed to update submitted jobs list!", e)
-        pyautogui.alert("Failed to update the excel of applied jobs!\nProbably because of 1 of the following reasons:\n1. The file is currently open or in use by another program\n2. Permission denied to write to the file\n3. Failed to find the file", "Failed Logging")
+        ui.alert("Failed to update the excel of applied jobs!\nProbably because of 1 of the following reasons:\n1. The file is currently open or in use by another program\n2. Permission denied to write to the file\n3. Failed to find the file", "Failed Logging")
 
 
 
@@ -892,12 +1144,26 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                 job_listings = driver.find_elements(By.XPATH, "//li[@data-occludable-job-id]")  
 
             
-                for job in job_listings:
+                for job_idx, job in enumerate(job_listings):
                     if keep_screen_awake: pyautogui.press('shiftright')
                     if current_count >= switch_number: break
                     print_lg("\n-@-\n")
 
-                    job_id,title,company,work_location,work_style,skip = get_job_main_details(job, blacklisted_companies, rejected_jobs)
+                    try:
+                        job_id,title,company,work_location,work_style,skip = get_job_main_details(job, blacklisted_companies, rejected_jobs)
+                    except StaleElementReferenceException:
+                        print_lg("Job card became stale. Re-fetching listings and retrying once...")
+                        buffer(1)
+                        refreshed_jobs = driver.find_elements(By.XPATH, "//li[@data-occludable-job-id]")
+                        if not refreshed_jobs:
+                            print_lg("No refreshed job cards found. Skipping this card.")
+                            continue
+                        try:
+                            retry_job = refreshed_jobs[min(job_idx, len(refreshed_jobs)-1)]
+                            job_id,title,company,work_location,work_style,skip = get_job_main_details(retry_job, blacklisted_companies, rejected_jobs)
+                        except Exception as retry_e:
+                            print_lg("Retry failed for stale job card. Skipping card.", retry_e)
+                            continue
                     
                     if skip: continue
                     # Redundant fail safe check for applied jobs!
@@ -921,6 +1187,7 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                     questions_list = None
                     screenshot_name = "Not Available"
 
+                    jobs_top_card = None
                     try:
                         rejected_jobs, blacklisted_companies, jobs_top_card = check_blacklist(rejected_jobs,job_id,company,blacklisted_companies)
                     except ValueError as e:
@@ -962,6 +1229,16 @@ def apply_to_jobs(search_terms: list[str]) -> None:
 
                     # Calculation of date posted
                     try:
+                        if jobs_top_card is None:
+                            jobs_top_card = try_find_by_classes(
+                                driver,
+                                [
+                                    "job-details-jobs-unified-top-card__primary-description-container",
+                                    "job-details-jobs-unified-top-card__primary-description",
+                                    "jobs-unified-top-card__primary-description",
+                                    "jobs-details__main-content",
+                                ],
+                            )
                         # try: time_posted_text = find_by_class(driver, "jobs-unified-top-card__posted-date", 2).text
                         # except: 
                         time_posted_text = jobs_top_card.find_element(By.XPATH, './/span[contains(normalize-space(), " ago")]').text
@@ -1019,7 +1296,7 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                                     if next_counter >= 15: 
                                         if pause_at_failed_question:
                                             screenshot(driver, job_id, "Needed manual intervention for failed question")
-                                            pyautogui.alert("Couldn't answer one or more questions.\nPlease click \"Continue\" once done.\nDO NOT CLICK Back, Next or Review button in LinkedIn.\n\n\n\n\nYou can turn off \"Pause at failed question\" setting in config.py", "Help Needed", "Continue")
+                                            ui.alert("Couldn't answer one or more questions.\nPlease click \"Continue\" once done.\nDO NOT CLICK Back, Next or Review button in LinkedIn.\n\n\n\n\nYou can turn off \"Pause at failed question\" setting in config.py", "Help Needed", "Continue")
                                             next_counter = 1
                                             continue
                                         if questions_list: print_lg("Stuck for one or some of the following questions...", questions_list)
@@ -1042,7 +1319,7 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                                 wait_span_click(driver, "Review", 1, scrollTop=True)
                                 cur_pause_before_submit = pause_before_submit
                                 if errored != "stuck" and cur_pause_before_submit:
-                                    decision = pyautogui.confirm('1. Please verify your information.\n2. If you edited something, please return to this final screen.\n3. DO NOT CLICK "Submit Application".\n\n\n\n\nYou can turn off "Pause before submit" setting in config.py\nTo TEMPORARILY disable pausing, click "Disable Pause"', "Confirm your information",["Disable Pause", "Discard Application", "Submit Application"])
+                                    decision = ui.confirm('1. Please verify your information.\n2. If you edited something, please return to this final screen.\n3. DO NOT CLICK "Submit Application".\n\n\n\n\nYou can turn off "Pause before submit" setting in config.py\nTo TEMPORARILY disable pausing, click "Disable Pause"', "Confirm your information",["Disable Pause", "Discard Application", "Submit Application"])
                                     if decision == "Discard Application": raise Exception("Job application discarded by user!")
                                     pause_before_submit = False if "Disable Pause" == decision else True
                                     # try_xp(modal, ".//span[normalize-space(.)='Review']")
@@ -1050,7 +1327,7 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                                 if wait_span_click(driver, "Submit application", 2, scrollTop=True): 
                                     date_applied = datetime.now()
                                     if not wait_span_click(driver, "Done", 2): actions.send_keys(Keys.ESCAPE).perform()
-                                elif errored != "stuck" and cur_pause_before_submit and "Yes" in pyautogui.confirm("You submitted the application, didn't you 😒?", "Failed to find Submit Application!", ["Yes", "No"]):
+                                elif errored != "stuck" and cur_pause_before_submit and "Yes" in ui.confirm("You submitted the application, didn't you 😒?", "Failed to find Submit Application!", ["Yes", "No"]):
                                     date_applied = datetime.now()
                                     wait_span_click(driver, "Done", 2)
                                 else:
@@ -1134,7 +1411,7 @@ chatGPT_tab = False
 linkedIn_tab = False
 
 def main() -> None:
-    pyautogui.alert("Please consider sponsoring this project at:\n\nhttps://github.com/sponsors/GodsScion\n\n", "Support the project", "Okay")
+    # Avoid blocking startup behind hidden dialogs.
     total_runs = 1
     try:
         global linkedIn_tab, tabs_count, useNewResume, aiClient
@@ -1142,13 +1419,19 @@ def main() -> None:
         validate_config()
         
         if not os.path.exists(default_resume_path):
-            pyautogui.alert(text='Your default resume "{}" is missing! Please update it\'s folder path "default_resume_path" in config.py\n\nOR\n\nAdd a resume with exact name and path (check for spelling mistakes including cases).\n\n\nFor now the bot will continue using your previous upload from LinkedIn!'.format(default_resume_path), title="Missing Resume", button="OK")
+            print_lg(
+                'Your default resume "{}" is missing! '
+                'Update "default_resume_path" in config.py or add the file. '
+                "Continuing with previous uploaded resume from LinkedIn."
+                .format(default_resume_path)
+            )
             useNewResume = False
         
         # Login to LinkedIn
         tabs_count = len(driver.window_handles)
         driver.get("https://www.linkedin.com/login")
-        if not is_logged_in_LN(): login_LN()
+        if not is_logged_in_LN():
+            login_LN()
         
         linkedIn_tab = driver.current_window_handle
 
@@ -1202,7 +1485,7 @@ def main() -> None:
         print_lg("Browser window closed or session is invalid. Exiting.", e)
     except Exception as e:
         critical_error_log("In Applier Main", e)
-        pyautogui.alert(e,alert_title)
+        ui.alert(str(e), alert_title)
     finally:
         summary = "Total runs: {}\nJobs Easy Applied: {}\nExternal job links collected: {}\nTotal applied or collected: {}\nFailed jobs: {}\nIrrelevant jobs skipped: {}\n".format(total_runs,easy_applied_count,external_jobs_count,easy_applied_count + external_jobs_count,failed_count,skip_count)
         print_lg(summary)
@@ -1235,11 +1518,11 @@ def main() -> None:
             timeSaved += 60
             timeSavedMsg = f"In this run, you saved approx {round(timeSaved/60)} mins ({timeSaved} secs), please consider supporting the project."
         msg = f"{quotes}\n\n\n{timeSavedMsg}\nYou can also get your quote and name shown here, or prioritize your bug reports by supporting the project at:\n\nhttps://github.com/sponsors/GodsScion\n\n\nSummary:\n{summary}\n\n\nBest regards,\nSai Vignesh Golla\nhttps://www.linkedin.com/in/saivigneshgolla/\n\nTop Sponsors:\n{sponsors}"
-        pyautogui.alert(msg, "Exiting..")
+        ui.alert(msg, "Exiting..")
         print_lg(msg,"Closing the browser...")
         if tabs_count >= 10:
             msg = "NOTE: IF YOU HAVE MORE THAN 10 TABS OPENED, PLEASE CLOSE OR BOOKMARK THEM!\n\nOr it's highly likely that application will just open browser and not do anything next time!" 
-            pyautogui.alert(msg,"Info")
+            ui.alert(msg,"Info")
             print_lg("\n"+msg)
         ##> ------ Yang Li : MARKYangL - Feature ------
         if use_AI and aiClient:
