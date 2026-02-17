@@ -1,227 +1,619 @@
-<!-- ##> ------ Karthik Sarode : karthik.sarode23@gmail.com - UI for excel files ------ -->
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Applied Jobs</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        table { 
-            border-collapse: collapse; 
-            width: 100%;
-            margin-top: 20px;
+        :root {
+            --bg: #f6f7fb;
+            --card: #ffffff;
+            --line: #e2e6ef;
+            --ink: #1e2532;
+            --muted: #5f6b7a;
+            --accent: #1259d4;
+            --ok: #15803d;
+            --chip: #eef2ff;
         }
-        th, td { 
-            border: 1px solid #ddd; 
-            padding: 12px; 
-            text-align: left; 
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: linear-gradient(180deg, #f9fbff 0%, var(--bg) 100%);
+            color: var(--ink);
+            font-family: "Segoe UI", Tahoma, sans-serif;
         }
-        th { 
-            background-color: #f4f4f4; 
-            font-weight: bold;
-        }
-        tr:nth-child(even) { background-color: #f8f8f8; }
-        a { 
-            color: #0066cc;
-            text-decoration: none;
-        }
-        a:hover { text-decoration: underline; }
-        .container {
+        .page {
             max-width: 1200px;
             margin: 0 auto;
+            padding: 24px 16px 40px;
         }
-        .sl-column {
-            width: 50px;
-            text-align: center;
+        .topbar {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 16px;
         }
-        .sort-button {
-            background: none;
+        h1 { margin: 0; font-size: 28px; }
+        .hint { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+        .search {
+            width: 320px;
+            max-width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: #fff;
+            color: var(--ink);
+        }
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-top: 8px;
+        }
+        .control {
+            font-size: 13px;
+            color: var(--muted);
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 8px 10px;
+        }
+        .control select {
             border: none;
+            outline: none;
+            background: transparent;
+            color: var(--ink);
+            font-size: 13px;
+            min-width: 160px;
+        }
+        .toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: var(--muted);
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 8px 10px;
+        }
+        .stats {
+            color: var(--muted);
+            font-size: 14px;
+            margin: 8px 0 18px;
+        }
+        .cards {
+            display: grid;
+            gap: 12px;
+        }
+        details.job {
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: var(--card);
+            overflow: hidden;
+        }
+        details.job[open] {
+            box-shadow: 0 8px 30px rgba(17, 24, 39, 0.08);
+        }
+        summary {
+            list-style: none;
             cursor: pointer;
-            padding: 0 5px;
+            padding: 14px;
+        }
+        summary::-webkit-details-marker { display: none; }
+        .row1 {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            align-items: center;
+            gap: 8px;
+        }
+        .title {
+            margin: 0 0 3px;
+            font-size: 18px;
+            line-height: 1.3;
+        }
+        .company {
+            margin: 0;
+            color: var(--muted);
+            font-size: 14px;
+        }
+        .badge {
+            padding: 6px 10px;
+            border-radius: 999px;
             font-size: 12px;
+            font-weight: 600;
+            background: var(--chip);
+            color: #394f90;
+            white-space: nowrap;
         }
-        .sort-button:hover {
-            color: #0066cc;
+        .badge.ok {
+            background: #ecfdf3;
+            color: var(--ok);
         }
-        .applied-column {
-            width: 70px;
+        .meta {
+            margin-top: 8px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .meta span {
+            font-size: 12px;
+            background: #f3f6fc;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            padding: 4px 8px;
+            color: var(--muted);
+        }
+        .content {
+            border-top: 1px solid var(--line);
+            padding: 14px;
+            display: grid;
+            gap: 14px;
+        }
+        .links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .btn {
+            display: inline-block;
+            text-decoration: none;
+            font-size: 13px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 8px 10px;
+            background: #fff;
+            color: var(--ink);
+        }
+        .btn.primary {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .section-title {
+            margin: 0 0 8px;
+            font-size: 14px;
+            letter-spacing: 0.02em;
+            color: var(--muted);
+            text-transform: uppercase;
+        }
+        .qa-list {
+            display: grid;
+            gap: 8px;
+        }
+        .qa-item {
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 10px;
+            background: #fcfdff;
+        }
+        .qa-q { margin: 0 0 8px; font-weight: 700; line-height: 1.4; }
+        .qa-a { margin: 0; color: var(--muted); font-size: 13px; }
+        .qa-grid {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: 6px 10px;
+            align-items: start;
+            margin-bottom: 8px;
+        }
+        .qa-k {
+            font-size: 12px;
+            letter-spacing: .02em;
+            text-transform: uppercase;
+            color: #6c7686;
+            font-weight: 700;
+        }
+        .qa-v {
+            font-size: 13px;
+            color: var(--ink);
+            word-break: break-word;
+        }
+        .qa-pills {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .pill {
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            padding: 4px 8px;
+            font-size: 12px;
+            background: #fff;
+            color: #4a5568;
+            max-width: 100%;
+            white-space: normal;
+        }
+        .pill.selected {
+            border-color: #195bd6;
+            background: #e9f0ff;
+            color: #123e93;
+            font-weight: 700;
+        }
+        .pill.previous {
+            border-color: #94a3b8;
+            background: #f1f5f9;
+            color: #334155;
+        }
+        .pill.answer {
+            border-color: #16a34a;
+            background: #ecfdf3;
+            color: #166534;
+            font-weight: 700;
+        }
+        .qa-badge {
+            display: inline-block;
+            margin-left: 6px;
+            font-size: 11px;
+            border-radius: 999px;
+            padding: 2px 8px;
+            background: #eef2ff;
+            color: #394f90;
+            border: 1px solid #cdd7f8;
+            vertical-align: middle;
+        }
+        .qa-badge.changed {
+            background: #fff7ed;
+            border-color: #fdba74;
+            color: #9a3412;
+        }
+        @media (max-width: 860px) {
+            .qa-grid { grid-template-columns: 1fr; }
+        }
+        .fields {
+            display: grid;
+            grid-template-columns: 220px 1fr;
+            gap: 8px 12px;
+        }
+        .fields .k {
+            font-size: 13px;
+            color: var(--muted);
+            word-break: break-word;
+        }
+        .fields .v {
+            font-size: 13px;
+            word-break: break-word;
+        }
+        .value-pre {
+            margin: 0;
+            white-space: pre-wrap;
+            font-family: inherit;
+        }
+        .empty {
             text-align: center;
+            color: var(--muted);
+            padding: 24px;
+            border: 1px dashed var(--line);
+            border-radius: 12px;
+            background: #fff;
         }
-        .tick {
-            color: #4CAF50;
-            font-weight: bold;
+        @media (max-width: 860px) {
+            .fields { grid-template-columns: 1fr; }
+            .fields .k { font-weight: 600; color: var(--ink); }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Applied Jobs History</h1>
-        <table id="jobsTable">
-            <thead>
-                <tr>
-                    <th class="sl-column">Sl No</th>
-                    <th>Job Title</th>
-                    <th>Company</th>  
-                    <th>HR Contact</th>
-                    <th>
-                        External Link
-                        <button class="sort-button" onclick="sortByExternalLink()">↕️</button>
-                    </th> 
-                    <th class="applied-column">Applied</th>
-                </tr>
-            </thead>
-            <tbody id="jobsBody"></tbody>
-        </table>
+    <div class="page">
+        <div class="topbar">
+            <div>
+                <h1>Applied Jobs History</h1>
+                <p class="hint">Full CSV details with parsed question answers.</p>
+                <div class="toolbar">
+                    <label class="control">Status
+                        <select id="statusFilter">
+                            <option value="all">All</option>
+                            <option value="applied">Applied</option>
+                            <option value="pending">Pending</option>
+                        </select>
+                    </label>
+                    <label class="control">Application Type
+                        <select id="applicationTypeFilter">
+                            <option value="all">All</option>
+                            <option value="easy">Easy Apply</option>
+                            <option value="external">External Link</option>
+                        </select>
+                    </label>
+                    <label class="control">Sort By
+                        <select id="sortBy">
+                            <option value="applied_desc">Date Applied (Newest)</option>
+                            <option value="applied_asc">Date Applied (Oldest)</option>
+                            <option value="posted_desc">Date Posted (Newest)</option>
+                            <option value="posted_asc">Date Posted (Oldest)</option>
+                            <option value="questions_desc">Questions Count (High to Low)</option>
+                            <option value="company_asc">Company (A-Z)</option>
+                            <option value="company_desc">Company (Z-A)</option>
+                            <option value="title_asc">Title (A-Z)</option>
+                        </select>
+                    </label>
+                    <label class="toggle"><input id="changedOnly" type="checkbox" /> Show changed answers only</label>
+                    <button id="expandAll" class="btn" type="button">Expand all cards</button>
+                    <button id="collapseAll" class="btn" type="button">Collapse all cards</button>
+                </div>
+            </div>
+            <input id="searchBox" class="search" type="text" placeholder="Search title, company, question, or value..." />
+        </div>
+        <p id="stats" class="stats"></p>
+        <div id="cards" class="cards"></div>
     </div>
 
     <script>
-        let sortOrder = 'asc';
         let jobsData = [];
-        let appliedJobs = new Set();
 
-        // Replace the createTableRow function with this updated version
-        function createTableRow(job, index) {
-            const row = document.createElement('tr');
-            
-            // Serial Number
-            const slCell = document.createElement('td');
-            slCell.textContent = index + 1;
-            slCell.className = 'sl-column';
-            row.appendChild(slCell);
-            
-            // Job Title with link
-            const titleCell = document.createElement('td');
-            const titleLink = document.createElement('a');
-            titleLink.href = job.Job_Link;
-            titleLink.textContent = job.Title;
-            titleLink.target = '_blank';
-            titleCell.appendChild(titleLink);
-            row.appendChild(titleCell);
-            
-            // Company
-            const companyCell = document.createElement('td');
-            companyCell.textContent = job.Company;
-            row.appendChild(companyCell);
-            
-            // HR Name with link
-            const hrCell = document.createElement('td');
-            if (job.HR_Name && job.HR_Name !== 'Unknown') {
-                const hrLink = document.createElement('a');
-                hrLink.href = job.HR_Link;
-                hrLink.textContent = job.HR_Name;
-                hrLink.target = '_blank';
-                hrCell.appendChild(hrLink);
-            } else {
-                hrCell.textContent = 'N/A';
+        function escapeHtml(input) {
+            return (input ?? "").toString()
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#39;");
+        }
+
+        function isUrl(value) {
+            return /^https?:\/\//i.test((value || "").trim());
+        }
+
+        function fieldValueNode(key, value) {
+            const v = (value || "").toString();
+            if (!v) return '<span style="color:#9aa3b3">-</span>';
+            if (isUrl(v)) return `<a class="btn" href="${escapeHtml(v)}" target="_blank" rel="noopener noreferrer">Open Link</a>`;
+
+            const shouldCollapse = key === "About Job" || key === "Questions Found" || v.length > 260;
+            if (!shouldCollapse) return `<span>${escapeHtml(v)}</span>`;
+            return `
+                <details>
+                    <summary>Show value</summary>
+                    <pre class="value-pre">${escapeHtml(v)}</pre>
+                </details>
+            `;
+        }
+
+        function getField(job, name) {
+            const row = (job.fields || []).find(x => x.key === name);
+            return row ? (row.value || "") : "";
+        }
+
+        function normalizeText(value) {
+            return (value || "").toString().trim().toLowerCase();
+        }
+
+        function parseDate(value) {
+            const raw = (value || "").toString().trim();
+            if (!raw || normalizeText(raw) === "pending") return null;
+            const normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
+            const dt = new Date(normalized);
+            return Number.isNaN(dt.getTime()) ? null : dt;
+        }
+
+        function toTimestamp(value) {
+            const dt = parseDate(value);
+            return dt ? dt.getTime() : null;
+        }
+
+        function renderQuestionItem(q) {
+            const question = q.question || q.raw_question || "Unknown question";
+            const answer = (q.answer || "").trim() || "-";
+            const previous = (q.previous || "").trim() || "-";
+            const options = Array.isArray(q.options) ? q.options : [];
+            const answerNorm = normalizeText(answer);
+            const previousNorm = normalizeText(previous);
+            const changed = previous !== "-" && answerNorm !== previousNorm;
+
+            const optionsHtml = options.length
+                ? `<div class="qa-pills">` + options.map(opt => {
+                    const optNorm = normalizeText(opt);
+                    const cls = optNorm === answerNorm ? "pill selected" : "pill";
+                    return `<span class="${cls}">${escapeHtml(opt)}</span>`;
+                }).join("") + `</div>`
+                : `<span style="color:#9aa3b3">No options captured</span>`;
+
+            return `
+                <div class="qa-item">
+                    <p class="qa-q">${escapeHtml(question)}<span class="qa-badge ${changed ? "changed" : ""}">${changed ? "Changed" : "Unchanged"}</span></p>
+                    <div class="qa-grid">
+                        <div class="qa-k">Chosen</div>
+                        <div class="qa-v"><span class="pill answer">${escapeHtml(answer)}</span></div>
+                        <div class="qa-k">Options</div>
+                        <div class="qa-v">${optionsHtml}</div>
+                        ${changed ? `<div class="qa-k">Changed from</div><div class="qa-v"><span class="pill previous">${escapeHtml(previous)}</span></div>` : ""}
+                    </div>
+                </div>
+            `;
+        }
+
+        async function markApplied(job) {
+            if (!job.job_id) return;
+            const response = await fetch(`/applied-jobs/${encodeURIComponent(job.job_id)}`, { method: "PUT" });
+            if (!response.ok) {
+                const payload = await response.json().catch(() => ({}));
+                throw new Error(payload.error || "Failed to update Date Applied");
             }
-            row.appendChild(hrCell);
-            
-            // External Job Link
-            const extCell = document.createElement('td');
-            const appliedCell = document.createElement('td');
-            appliedCell.className = 'applied-column';
+            const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+            job.date_applied = now;
+            const dateField = (job.fields || []).find(x => x.key === "Date Applied");
+            if (dateField) dateField.value = now;
+        }
 
-            if (job.External_Job_link === 'Easy Applied') {
-                extCell.textContent = 'Easy Applied';
-                appliedCell.innerHTML = '<span class="tick">✓</span>';
-            } else if (job.External_Job_link) {
-                const extLink = document.createElement('a');
-                extLink.href = job.External_Job_link;
-                extLink.textContent = 'External Link';
-                extLink.target = '_blank';
-                
-                // Add click handler for external link
-                extLink.addEventListener('click', async () => {
-                    try {
-                        const response = await fetch(`/applied-jobs/${job.Job_ID}`, {
-                            method: 'PUT',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            }
-                        });
-                        
-                        if (response.ok) {
-                            appliedCell.innerHTML = '<span class="tick">✓</span>';
-                            job.Date_Applied = new Date().toISOString();
-                        }
-                    } catch (error) {
-                        console.error('Error updating applied date:', error);
-                    }
+        function jobMatches(job, term) {
+            if (!term) return true;
+            const bag = [
+                job.title, job.company, job.date_applied, job.external_job_link,
+                ...(job.fields || []).map(x => `${x.key} ${x.value}`),
+                ...(job.questions || []).map(x => `${x.question} ${x.answer} ${x.type} ${x.previous}`)
+            ].join(" ").toLowerCase();
+            return bag.includes(term.toLowerCase());
+        }
+
+        function renderJobs() {
+            const cards = document.getElementById("cards");
+            const stats = document.getElementById("stats");
+            const term = document.getElementById("searchBox").value.trim();
+            const changedOnly = document.getElementById("changedOnly").checked;
+            const statusFilter = document.getElementById("statusFilter").value;
+            const typeFilter = document.getElementById("applicationTypeFilter").value;
+            const sortBy = document.getElementById("sortBy").value;
+
+            const filtered = jobsData.filter(job => {
+                if (!jobMatches(job, term)) return false;
+                const applied = (job.date_applied || "").toLowerCase() !== "pending" && (job.date_applied || "").trim() !== "";
+                if (statusFilter === "applied" && !applied) return false;
+                if (statusFilter === "pending" && applied) return false;
+
+                const externalLink = (job.external_job_link || "").trim();
+                const isEasyApply = externalLink === "Easy Applied";
+                const isExternal = !!externalLink && externalLink !== "Easy Applied";
+                if (typeFilter === "easy" && !isEasyApply) return false;
+                if (typeFilter === "external" && !isExternal) return false;
+
+                if (!changedOnly) return true;
+                return (job.questions || []).some(q => {
+                    const a = normalizeText(q.answer || "");
+                    const p = normalizeText(q.previous || "");
+                    return !!p && a !== p;
                 });
-                
-                extCell.appendChild(extLink);
-                // Show tick if already applied
-                if (job.Date_Applied !== 'Pending') {
-                    appliedCell.innerHTML = '<span class="tick">✓</span>';
+            });
+
+            filtered.sort((a, b) => {
+                const aApplied = toTimestamp(a.date_applied);
+                const bApplied = toTimestamp(b.date_applied);
+                const aPosted = toTimestamp(getField(a, "Date Posted"));
+                const bPosted = toTimestamp(getField(b, "Date Posted"));
+                const aCompany = normalizeText(a.company || "");
+                const bCompany = normalizeText(b.company || "");
+                const aTitle = normalizeText(a.title || "");
+                const bTitle = normalizeText(b.title || "");
+                const aQ = (a.questions || []).length;
+                const bQ = (b.questions || []).length;
+
+                switch (sortBy) {
+                    case "applied_asc":
+                        return (aApplied ?? Number.MAX_SAFE_INTEGER) - (bApplied ?? Number.MAX_SAFE_INTEGER);
+                    case "posted_desc":
+                        return (bPosted ?? -1) - (aPosted ?? -1);
+                    case "posted_asc":
+                        return (aPosted ?? Number.MAX_SAFE_INTEGER) - (bPosted ?? Number.MAX_SAFE_INTEGER);
+                    case "questions_desc":
+                        return bQ - aQ;
+                    case "company_asc":
+                        return aCompany.localeCompare(bCompany);
+                    case "company_desc":
+                        return bCompany.localeCompare(aCompany);
+                    case "title_asc":
+                        return aTitle.localeCompare(bTitle);
+                    case "applied_desc":
+                    default:
+                        return (bApplied ?? -1) - (aApplied ?? -1);
                 }
-            } else {
-                extCell.textContent = 'N/A';
+            });
+            stats.textContent = `${filtered.length} of ${jobsData.length} jobs shown`;
+
+            if (!filtered.length) {
+                cards.innerHTML = '<div class="empty">No matching jobs found.</div>';
+                return;
             }
-            row.appendChild(extCell);
-            row.appendChild(appliedCell);
-            
-            return row;
-        }
 
-        function sortByExternalLink() {
-            sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
-            
-            jobsData.sort((a, b) => {
-                const valueA = a.External_Job_link || '';
-                const valueB = b.External_Job_link || '';
-                
-                if (sortOrder === 'asc') {
-                    return valueA.localeCompare(valueB);
-                } else {
-                    return valueB.localeCompare(valueA);
-                }
+            cards.innerHTML = filtered.map((job, index) => {
+                const applied = (job.date_applied || "").toLowerCase() !== "pending" && (job.date_applied || "").trim() !== "";
+                const badgeText = applied ? "Applied" : "Pending";
+                const questionsHtml = (job.questions || []).length
+                    ? job.questions.map(q => renderQuestionItem(q)).join("")
+                    : '<div class="qa-item"><p class="qa-a">No parsed questions available.</p></div>';
+
+                const fieldsHtml = (job.fields || []).map(f => `
+                    <div class="k">${escapeHtml(f.key)}</div>
+                    <div class="v">${fieldValueNode(f.key, f.value)}</div>
+                `).join("");
+
+                const hrName = job.hr_name && job.hr_name !== "Unknown" ? job.hr_name : "";
+                const hrLink = job.hr_link && job.hr_link !== "Unknown" ? job.hr_link : "";
+                const externalLink = (job.external_job_link || "").trim();
+                const extButton = externalLink && externalLink !== "Easy Applied"
+                    ? `<button class="btn primary js-open-external" data-job-id="${escapeHtml(job.job_id || "")}" type="button">Open External Link</button>`
+                    : `<span class="btn">${escapeHtml(externalLink || "N/A")}</span>`;
+
+                return `
+                    <details class="job">
+                        <summary>
+                            <div class="row1">
+                                <div>
+                                    <p class="title">${escapeHtml(job.title || "Untitled Job")}</p>
+                                    <p class="company">${escapeHtml(job.company || "Unknown Company")}</p>
+                                </div>
+                                <span class="badge ${applied ? "ok" : ""}">${badgeText}</span>
+                            </div>
+                            <div class="meta">
+                                <span>#${index + 1}</span>
+                                <span>Job ID: ${escapeHtml(job.job_id || "-")}</span>
+                                <span>Date Applied: ${escapeHtml(job.date_applied || "Pending")}</span>
+                                <span>Work Location: ${escapeHtml(getField(job, "Work Location") || "-")}</span>
+                            </div>
+                        </summary>
+                        <div class="content">
+                            <div class="links">
+                                ${job.job_link ? `<a class="btn primary" href="${escapeHtml(job.job_link)}" target="_blank" rel="noopener noreferrer">Open LinkedIn Job</a>` : ""}
+                                ${hrName && hrLink ? `<a class="btn" href="${escapeHtml(hrLink)}" target="_blank" rel="noopener noreferrer">HR: ${escapeHtml(hrName)}</a>` : "<span class='btn'>HR: N/A</span>"}
+                                ${extButton}
+                            </div>
+                            <div>
+                                <h3 class="section-title">Question Answers</h3>
+                                <div class="qa-list">${questionsHtml}</div>
+                            </div>
+                            <div>
+                                <h3 class="section-title">All CSV Fields</h3>
+                                <div class="fields">${fieldsHtml}</div>
+                            </div>
+                        </div>
+                    </details>
+                `;
+            }).join("");
+
+            cards.querySelectorAll(".js-open-external").forEach(btn => {
+                btn.addEventListener("click", () => openExternalAndMark(btn.dataset.jobId || ""));
             });
-            
-            const tbody = document.getElementById('jobsBody');
-            tbody.innerHTML = '';
-            jobsData.forEach((job, index) => {
-                tbody.appendChild(createTableRow(job, index));
-            });
         }
 
-        function renderMessageRow(message) {
-            const tbody = document.getElementById('jobsBody');
-            tbody.innerHTML = '';
-            const row = document.createElement('tr');
-            const cell = document.createElement('td');
-            cell.colSpan = 6;
-            cell.textContent = message;
-            cell.style.textAlign = 'center';
-            cell.style.padding = '18px';
-            row.appendChild(cell);
-            tbody.appendChild(row);
+        async function openExternalAndMark(jobId) {
+            const job = jobsData.find(j => (j.job_id || "") === (jobId || ""));
+            if (!job || !job.external_job_link) return;
+            window.open(job.external_job_link, "_blank", "noopener,noreferrer");
+            try {
+                await markApplied(job);
+                renderJobs();
+            } catch (error) {
+                console.error("Failed to mark applied:", error);
+                alert(`Failed to update Date Applied: ${error.message}`);
+            }
         }
 
-        fetch('/applied-jobs')
-            .then(async response => {
+        async function loadJobs() {
+            const cards = document.getElementById("cards");
+            cards.innerHTML = '<div class="empty">Loading jobs...</div>';
+            try {
+                const response = await fetch("/applied-jobs");
                 const payload = await response.json();
                 if (!response.ok) {
-                    throw new Error(payload.error || 'Failed to load jobs');
+                    throw new Error(payload.error || "Failed to load jobs");
                 }
-                return payload;
-            })
-            .then(jobs => {
-                const tbody = document.getElementById('jobsBody');
-                if (!Array.isArray(jobs) || jobs.length === 0) {
-                    renderMessageRow('No applied jobs found yet.');
-                    return;
-                }
-                jobsData = jobs;
-                jobs.forEach((job, index) => {
-                    tbody.appendChild(createTableRow(job, index));
-                });
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                renderMessageRow(`Failed to load jobs: ${error.message}`);
-            });
+                jobsData = Array.isArray(payload) ? payload : [];
+                renderJobs();
+            } catch (error) {
+                console.error(error);
+                cards.innerHTML = `<div class="empty">Failed to load jobs: ${escapeHtml(error.message)}</div>`;
+            }
+        }
+
+        document.getElementById("searchBox").addEventListener("input", renderJobs);
+        document.getElementById("changedOnly").addEventListener("change", renderJobs);
+        document.getElementById("statusFilter").addEventListener("change", renderJobs);
+        document.getElementById("applicationTypeFilter").addEventListener("change", renderJobs);
+        document.getElementById("sortBy").addEventListener("change", renderJobs);
+        document.getElementById("expandAll").addEventListener("click", () => {
+            document.querySelectorAll("details.job").forEach(card => { card.open = true; });
+        });
+        document.getElementById("collapseAll").addEventListener("click", () => {
+            document.querySelectorAll("details.job").forEach(card => { card.open = false; });
+        });
+        loadJobs();
     </script>
 </body>
 </html>
-
-<!-- ##< -->
