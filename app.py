@@ -3,11 +3,14 @@ from flask_cors import CORS
 import csv
 from datetime import datetime
 import os
+from pathlib import Path
 
 app = Flask(__name__)
 CORS(app)
 
-PATH = 'all excels/'
+BASE_DIR = Path(__file__).resolve().parent
+CSV_DIR = Path(os.getenv("AJA_EXCEL_DIR", BASE_DIR / "all excels"))
+CSV_FILE = CSV_DIR / "all_applied_applications_history.csv"
 ##> ------ Karthik Sarode : karthik.sarode23@gmail.com - UI for excel files ------
 @app.route('/')
 def home():
@@ -28,22 +31,23 @@ def get_applied_jobs():
 
     try:
         jobs = []
-        with open(PATH + 'all_applied_applications_history.csv', 'r', encoding='utf-8') as file:
+        with open(CSV_FILE, 'r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
             for row in reader:
                 jobs.append({
-                    'Job_ID': row['Job ID'],
-                    'Title': row['Title'],
-                    'Company': row['Company'],
-                    'HR_Name': row['HR Name'],
-                    'HR_Link': row['HR Link'],
-                    'Job_Link': row['Job Link'],
-                    'External_Job_link': row['External Job link'],
-                    'Date_Applied': row['Date Applied']
+                    'Job_ID': row.get('Job ID', ''),
+                    'Title': row.get('Title', ''),
+                    'Company': row.get('Company', ''),
+                    'HR_Name': row.get('HR Name', ''),
+                    'HR_Link': row.get('HR Link', ''),
+                    'Job_Link': row.get('Job Link', ''),
+                    'External_Job_link': row.get('External Job link', ''),
+                    'Date_Applied': row.get('Date Applied', 'Pending')
                 })
         return jsonify(jobs)
     except FileNotFoundError:
-        return jsonify({"error": "No applications history found"}), 404
+        # Empty state is more UI-friendly than hard 404 for first-time users.
+        return jsonify([])
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -63,13 +67,11 @@ def update_applied_date(job_id):
     """
     try:
         data = []
-        csvPath = PATH + 'all_applied_applications_history.csv'
-        
-        if not os.path.exists(csvPath):
-            return jsonify({"error": f"CSV file not found at {csvPath}"}), 404
+        if not CSV_FILE.exists():
+            return jsonify({"error": f"CSV file not found at {CSV_FILE}"}), 404
             
         # Read current CSV content
-        with open(csvPath, 'r', encoding='utf-8') as file:
+        with open(CSV_FILE, 'r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
             fieldNames = reader.fieldnames
             found = False
@@ -82,7 +84,7 @@ def update_applied_date(job_id):
         if not found:
             return jsonify({"error": f"Job ID {job_id} not found"}), 404
 
-        with open(csvPath, 'w', encoding='utf-8', newline='') as file:
+        with open(CSV_FILE, 'w', encoding='utf-8', newline='') as file:
             writer = csv.DictWriter(file, fieldnames=fieldNames)
             writer.writeheader()
             writer.writerows(data)
